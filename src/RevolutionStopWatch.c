@@ -811,7 +811,7 @@ void handle_timer(AppContextRef ctx, AppTimerHandle handle, uint32_t cookie ) {
               }
           }
           // All second only stopwatches need a second rather than using ticklen
-          update_timer = app_timer_send_event(ctx, ASECOND, TIMER_UPDATE);
+          update_timer = app_timer_send_event(ctx, 1000, TIMER_UPDATE);
           ticks++;
           if(ticks >= TICKREMOVE)
           {
