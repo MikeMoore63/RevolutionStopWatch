@@ -6,7 +6,7 @@
 #define MY_UUID { 0x91, 0x13, 0xA8, 0x37, 0x56, 0x92, 0x4C, 0xCA, 0x97, 0x86, 0xB2, 0x8D, 0x08, 0x1C, 0xDE, 0x35 }
 PBL_APP_INFO(MY_UUID,
              "Revolution Stopwatch", "Mike Moore",
-             1, 0, /* App version */
+             1, 1, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON,
              APP_INFO_STANDARD_APP);
 
