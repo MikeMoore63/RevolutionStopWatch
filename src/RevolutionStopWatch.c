@@ -727,8 +727,8 @@ void handle_init(AppContextRef ctx) {
   for (int i=0;i<MODES;i++)
   {
         bmp_init_container(mapModeImage[i].resourceid,&modeImages[i]);
-        layer_set_frame(&modeImages[i].layer.layer, GRect(0,0,13,23));
-        // layer_set_frame(&modeImages[i].layer.layer, GRect((144 - 12)/2,((144 - 16)/2)+ 25,12,16));
+        // layer_set_frame(&modeImages[i].layer.layer, GRect(0,0,13,23));
+        layer_set_frame(&modeImages[i].layer.layer, GRect((144 - 12)/2,((144 - 16)/2),12,16));
         layer_set_hidden( &modeImages[i].layer.layer, true);
         layer_add_child(&window.layer,&modeImages[i].layer.layer);
   }
