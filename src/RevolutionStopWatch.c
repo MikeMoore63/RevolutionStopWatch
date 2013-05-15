@@ -6,74 +6,33 @@
 #define MY_UUID { 0x91, 0x13, 0xA8, 0x37, 0x56, 0x92, 0x4C, 0xCA, 0x97, 0x86, 0xB2, 0x8D, 0x08, 0x1C, 0xDE, 0x35 }
 PBL_APP_INFO(MY_UUID,
              "Revolution Stopwatch", "Mike Moore",
-             1, 1, /* App version */
+             1, 2, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON,
              APP_INFO_STANDARD_APP);
 
 // Envisioned as a watchface by Jean-Noël Mattern
 // Based on the display of the Freebox Revolution, which was designed by Philippe Starck.
 
-#include "yachtimermodel.h"   // Add yachtimer methods and constants
+#include "yachtimercontrol.h"   // Add yachtimer control assume one model other controls are available :-)
+				// the model is independant of watch control define models and approach
+                                // manage insput
 
 //************************* Boiler Plate Stop Watch stuff *****************************************
-YachtTimer myYachtTimer;
-int startappmode=WATCHMODE;
-int modetick=0;
-int forceall=true;
+// The only control a as toggle mode  is available.
+// Could have a multi control as well.
+YachtTimerControl myControl;
 
-#define BUTTON_LAP BUTTON_ID_DOWN
-#define BUTTON_RUN BUTTON_ID_SELECT
-#define BUTTON_RESET BUTTON_ID_UP
-#define TIMER_UPDATE 1
-#define MODES 5 // Number of watch types stopwatch, coutdown, yachttimer, watch
-#define TICKREMOVE 5
-#define CNTDWNCFG 99
-#define MAX_TIME  (ASECOND * 60 * 60 * 24)
-
-int ticks=0;
-
-
-BmpContainer modeImages[MODES];
-
-struct modresource {
-        int mode;
-        int resourceid;
-} mapModeImage[MODES] = {
-           { WATCHMODE, RESOURCE_ID_IMAGE_WATCH },
-           { STOPWATCH, RESOURCE_ID_IMAGE_STOPWATCH },
-           { YACHTIMER, RESOURCE_ID_IMAGE_YACHTTIMER },
-           { COUNTDOWN, RESOURCE_ID_IMAGE_COUNTDOWN },
-           { CNTDWNCFG, RESOURCE_ID_IMAGE_CNTDWNCFG },
+// Resources and position of images come from the view
+ModeResource myModes[MODES] = {
+           { .mode = WATCHMODE, .resourceid = RESOURCE_ID_IMAGE_WATCH, .adjustnum=0 },
+           { .mode = STOPWATCH, .resourceid = RESOURCE_ID_IMAGE_STOPWATCH, .adjustnum=0 },
+           { .mode = YACHTIMER, .resourceid = RESOURCE_ID_IMAGE_YACHTTIMER, .adjustnum=0 },
+           { .mode = COUNTDOWN, .resourceid = RESOURCE_ID_IMAGE_COUNTDOWN, .adjustnum=0 },
+           { .mode = CNTDWNCFG, .resourceid = RESOURCE_ID_IMAGE_CNTDWNCFG, .adjustnum=60L * ASECOND },
 };
-// allow us to emulate units changed
-PblTm theLastTime;
 
-// The documentation claims this is defined, but it is not.
-// Define it here for now.
-#ifndef APP_TIMER_INVALID_HANDLE
-    #define APP_TIMER_INVALID_HANDLE 0xDEADBEEF
-#endif
 
-// Actually keeping track of time
-static AppTimerHandle update_timer = APP_TIMER_INVALID_HANDLE;
-static int ticklen=0;
-
-void toggle_stopwatch_handler(ClickRecognizerRef recognizer, Window *window);
-void toggle_mode(ClickRecognizerRef recognizer, Window *window);
-void reset_stopwatch_handler(ClickRecognizerRef recognizer, Window *window);
-void stop_stopwatch();
-void start_stopwatch();
-void config_provider(ClickConfig **config, Window *window);
-// Hook to ticks
-void handle_timer(AppContextRef ctx, AppTimerHandle handle, uint32_t cookie);
-void config_watch(int appmode,int increment);
-void update_hand_positions();
-
-// Custom vibration pattern
-const VibePattern start_pattern = {
-  .durations = (uint32_t []) {100, 300, 300, 300, 100, 300},
-  .num_segments = 6
-};
+//************************* Boiler Plate Stop Watch stuff *****************************************
 
 
 // Settings
@@ -136,9 +95,6 @@ const int DAY_IMAGE_RESOURCE_IDS[NUMBER_OF_DAY_IMAGES] = {
 
 // Main
 Window window;
-//***********************************************************************************************
-AppContextRef app;
-//***********************************************************************************************
 
 Layer date_container_layer;
 
@@ -214,127 +170,6 @@ void handle_init(AppContextRef ctx);
 void handle_second_tick(AppContextRef ctx, PebbleTickEvent *event);
 void handle_deinit(AppContextRef ctx);
 
-//Stop watch handling stuff *********************************************************************
-
-void config_watch(int appmode,int increment)
-{
-    int adjustnum = 0;
-
-    // even if running allow minute changes
-    switch(mapModeImage[modetick].mode)
-        {
-        // Ok so we want to lower countdown config
-        // Down in increments of 1 minute
-        case CNTDWNCFG:
-                adjustnum=ASECOND * 60;
-		ticks=0;
-                break;
-
-        }
-
-
-        /* for non adjust appmodes does nothing as adjustnum is 0 */
-        time_t new_time=0;
-
-        /* if running adjust running time otherwise adjust config time */
-        if(yachtimer_isRunning(&myYachtTimer))
-        {
-                new_time =  yachtimer_getElapsed(&myYachtTimer) + (increment * adjustnum );
-                if(new_time > MAX_TIME) new_time = yachtimer_getElapsed(&myYachtTimer);
-                yachtimer_setElapsed(&myYachtTimer, new_time);
-        }
-        else
-        {
-                new_time =  yachtimer_getConfigTime(&myYachtTimer) + (increment * adjustnum );
-                // Cannot sert below 0
-                // Can set above max display time
-                // so keep it displayable
-                if(new_time > MAX_TIME) new_time = MAX_TIME;
-                yachtimer_setConfigTime(&myYachtTimer, new_time);
-
-        }
-    
-
-
-}
-void start_stopwatch() {
-    yachtimer_start(&myYachtTimer);
-
-    // default start mode
-    startappmode = yachtimer_getMode(&myYachtTimer);;
-    update_hand_positions();
-
-
-}
-// Toggle stopwatch timer mode
-void toggle_mode(ClickRecognizerRef recognizer, Window *window) {
-
-          // Can only set to first three
-          modetick = (modetick == MODES) ?0:(modetick+1);
-          yachtimer_setMode(&myYachtTimer,mapModeImage[modetick].mode);
-
-          for (int i=0;i<MODES;i++)
-          {
-                layer_set_hidden( &modeImages[i].layer.layer, ((mapModeImage[modetick].mode == mapModeImage[i].mode)?false:true));
-          }
-          ticks = 0;
-
-          update_hand_positions();
-}
-void stop_stopwatch() {
-
-    yachtimer_stop(&myYachtTimer);
-    update_hand_positions();
-}
-void toggle_stopwatch_handler(ClickRecognizerRef recognizer, Window *window) {
-    switch(mapModeImage[modetick].mode)
-    {
-        case YACHTIMER:
-        case STOPWATCH:
-        case COUNTDOWN:
-            if(yachtimer_isRunning(&myYachtTimer)) {
-                stop_stopwatch();
-            } else {
-                start_stopwatch();
-            }
-            break;
-        default:
-            config_watch(mapModeImage[modetick].mode,-1);
-    }
-    update_hand_positions();
-}
-void reset_stopwatch_handler(ClickRecognizerRef recognizer, Window *window) {
-
-    switch(mapModeImage[modetick].mode)
-    {
-        case STOPWATCH:
-        case YACHTIMER:
-        case COUNTDOWN:
-            yachtimer_reset(&myYachtTimer);
-            if(yachtimer_isRunning(&myYachtTimer))
-            {
-                 stop_stopwatch();
-                 start_stopwatch();
-            }
-            else
-            {
-                stop_stopwatch();
-            }
-
-            break;
-        default:
-            ;
-            // if not in config mode won't do anything which makes this easy
-            config_watch(mapModeImage[modetick].mode,1);
-    }
-    // Force redisplay
-    update_hand_positions();
-}
-void update_hand_positions()
-{
-	handle_timer(app,update_timer,TIMER_UPDATE);
-}
-//***********************************************************************************************
 
 // General
 BmpContainer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *parent_layer, GRect frame, const int *digit_resource_ids) {
@@ -612,7 +447,7 @@ void pbl_main(void *params) {
     .init_handler   = &handle_init,
     .deinit_handler = &handle_deinit,
 //*********************************************************************************
-    .timer_handler = &handle_timer  // Put timer in instead of tick_handler
+    .timer_handler = &yachtimercontrol_handle_timer  // Put timer in instead of tick_handler
 //*********************************************************************************
 //    .tick_info = {
 //      .tick_handler = &handle_second_tick,
@@ -623,28 +458,13 @@ void pbl_main(void *params) {
 
   app_event_loop(params, &handlers);
 }
-//*********************************************************************************
-void config_provider(ClickConfig **config, Window *window) {
-    config[BUTTON_RUN]->click.handler = (ClickHandler)toggle_stopwatch_handler;
-    config[BUTTON_LAP]->long_click.handler = (ClickHandler) toggle_mode;
-    config[BUTTON_RESET]->click.handler = (ClickHandler)reset_stopwatch_handler;
-//    config[BUTTON_LAP]->click.handler = (ClickHandler)lap_time_handler;
-//    config[BUTTON_LAP]->long_click.handler = (ClickHandler)handle_display_lap_times;
-//    config[BUTTON_LAP]->long_click.delay_ms = 700;
-    (void)window;
-}
-//*********************************************************************************
 
 void handle_init(AppContextRef ctx) {
-//*********************************************************************************
-  app = ctx;  // needed to add this as not passed in click provider
-//*********************************************************************************
   window_init(&window, "Revolution");
   window_stack_push(&window, true /* Animated */);
+
 //*********************************************************************************
   window_set_fullscreen(&window, true); // if app need to do this.
-  // Arrange for user input.
-  window_set_click_config_provider(&window, (ClickConfigProvider) config_provider);
 //*********************************************************************************
   window_set_background_color(&window, GColorBlack);
 
@@ -722,112 +542,32 @@ void handle_init(AppContextRef ctx) {
   layer_init(&seconds_layer, seconds_layer_frame);
   layer_add_child(&date_container_layer, &seconds_layer);
 
-//*********************************************************************************
-// Mode icons
-  for (int i=0;i<MODES;i++)
-  {
-        bmp_init_container(mapModeImage[i].resourceid,&modeImages[i]);
-        // layer_set_frame(&modeImages[i].layer.layer, GRect(0,0,13,23));
-        layer_set_frame(&modeImages[i].layer.layer, GRect((144 - 12)/2,((144 - 16)/2),12,16));
-        layer_set_hidden( &modeImages[i].layer.layer, true);
-        layer_add_child(&window.layer,&modeImages[i].layer.layer);
-  }
-  ticks = 0;
-  // Set up a layer for the second hand
- yachtimer_init(&myYachtTimer,mapModeImage[modetick].mode);
- yachtimer_setConfigTime(&myYachtTimer, ASECOND * 60 * 10);
- yachtimer_tick(&myYachtTimer,0);
-//*********************************************************************************
+//************************************* set up the control *******************************
+  GRect modeIndicatorPos = GRect(
+	((144 - 12)/2),
+	((144 - 16)/2),
+	12,
+	16);
+  yachtimercontrol_init(&myControl,
+			ctx, 
+			&window, 
+			myModes, 
+			MODES,
+			modeIndicatorPos,
+			&handle_second_tick);
+//************************************* set up the control *******************************
+
 
   // Display
-//*********************************************************************************
-  stop_stopwatch();
-  PblTm *tick_time;
-  tick_time=yachtimer_getPblDisplayTime(&myYachtTimer);
-  memcpy(&theLastTime, tick_time,sizeof(PblTm));
-  tick_time = yachtimer_getPblLastTime(&myYachtTimer);
-  theLastTime.tm_yday = tick_time->tm_yday;
-  theLastTime.tm_mon = tick_time->tm_mon;
-  theLastTime.tm_year = tick_time->tm_year;
-//*********************************************************************************
 
-  display_time(tick_time);
-  display_day(tick_time);
-  display_date(tick_time);
-  display_seconds(tick_time);
+//************************************* the control makes this happen  *******************************
+ /*   PblTm *tick_time = yachtimer_getPblDisplayTime(yachtimercontrol_getModel(&myControl));
+   display_time(tick_time);
+   display_day(tick_time);
+   display_date(tick_time);
+   display_seconds(tick_time); */
 }
 
-//*********************************************************************************
-// Wrap normal timer mode with stopwatch handling
-void handle_timer(AppContextRef ctx, AppTimerHandle handle, uint32_t cookie ) {
-  (void)ctx;
-  PebbleTickEvent theEvent;
-  PblTm *theTime;
-   
-   if(cookie == TIMER_UPDATE)
-   {
-          yachtimer_tick(&myYachtTimer,ASECOND);
-          ticklen = yachtimer_getTick(&myYachtTimer);
-	  theEvent.tick_time = yachtimer_getPblDisplayTime(&myYachtTimer);
-          theTime = yachtimer_getPblLastTime(&myYachtTimer);
-
-	  // Work out time changed
-          // In all modes do hors minutes and seconds
-          // In non-watch modes have day, date, day of week etc follow clock 
-          theEvent.units_changed = 0;
-          theEvent.units_changed |= (theLastTime.tm_sec != theEvent.tick_time->tm_sec)?SECOND_UNIT:theEvent.units_changed;
-          theEvent.units_changed |= (theLastTime.tm_min != theEvent.tick_time->tm_min)?MINUTE_UNIT:theEvent.units_changed;
-          theEvent.units_changed |= (theLastTime.tm_hour != theEvent.tick_time->tm_hour)?HOUR_UNIT:theEvent.units_changed;
-	  if(yachtimer_getMode(&myYachtTimer) == WATCHMODE)
-	  {
-		  theEvent.units_changed |= (theLastTime.tm_yday != theEvent.tick_time->tm_yday)?DAY_UNIT:theEvent.units_changed;
-		  theEvent.units_changed |= (theLastTime.tm_mon != theEvent.tick_time->tm_mon)?MONTH_UNIT:theEvent.units_changed;
-		  theEvent.units_changed |= (theLastTime.tm_year != theEvent.tick_time->tm_year)?YEAR_UNIT:theEvent.units_changed;
-	   }
-	   else
-	   {
-		
-		  theEvent.units_changed |= (theLastTime.tm_yday != theTime->tm_yday)?DAY_UNIT:theEvent.units_changed;
-		  theEvent.units_changed |= (theLastTime.tm_mon != theTime->tm_mon)?MONTH_UNIT:theEvent.units_changed;
-		  theEvent.units_changed |= (theLastTime.tm_year != theTime->tm_year)?YEAR_UNIT:theEvent.units_changed;
-	   }
-           memcpy(&theLastTime,theEvent.tick_time,sizeof(PblTm));
-
-	  if(yachtimer_getMode(&myYachtTimer) != WATCHMODE)
-	  {
-		  theLastTime.tm_yday = theTime->tm_yday;
-		  theLastTime.tm_mon = theTime->tm_mon;
-		  theLastTime.tm_year = theTime->tm_year;
-	  }
-	  if(ticks <= TICKREMOVE)
-	  {
-		theEvent.units_changed = SECOND_UNIT|MINUTE_UNIT|HOUR_UNIT|DAY_UNIT|MONTH_UNIT|YEAR_UNIT;
-	  }
-
-	  // Emulate every second tick
-          if(update_timer != APP_TIMER_INVALID_HANDLE) {
-              if(app_timer_cancel_event(app, update_timer)) {
-                  update_timer = APP_TIMER_INVALID_HANDLE;
-              }
-          }
-          // All second only stopwatches need a second rather than using ticklen
-          update_timer = app_timer_send_event(ctx, 1000, TIMER_UPDATE);
-          ticks++;
-          if(ticks >= TICKREMOVE)
-          {
-                for(int i=0;i<MODES;i++)
-                {
-                        layer_set_hidden( &modeImages[i].layer.layer, true);
-                }
-          }
-          theTimeEventType event = yachtimer_triggerEvent(&myYachtTimer);
-
-        if(event == MinorTime) vibes_double_pulse();
-        if(event == MajorTime) vibes_enqueue_custom_pattern(start_pattern);
-	handle_second_tick(ctx,&theEvent);
-   }
-}
-//*********************************************************************************
 void handle_second_tick(AppContextRef ctx, PebbleTickEvent *event) {
   display_seconds(event->tick_time);
 
@@ -855,6 +595,7 @@ void handle_deinit(AppContextRef ctx) {
   if (day_item.loaded) {
     bmp_deinit_container(&day_item.image_container);
   }
-  for(int i=0;i<MODES;i++)
-        bmp_deinit_container(&modeImages[i]);
+   //************************************* unset up the control *******************************
+  yachtimercontrol_deinit(&myControl);
+   //************************************* unset up the control *******************************
 }
