@@ -1,14 +1,12 @@
-#include "pebble_os.h"
-#include "pebble_app.h"
-#include "pebble_fonts.h"
+#include <pebble.h>
 
-
-#define MY_UUID { 0x91, 0x13, 0xA8, 0x37, 0x56, 0x92, 0x4C, 0xCA, 0x97, 0x86, 0xB2, 0x8D, 0x08, 0x1C, 0xDE, 0x35 }
-PBL_APP_INFO(MY_UUID,
-             "Revolution Stopwatch", "Mike Moore",
-             1, 2, /* App version */
-             RESOURCE_ID_IMAGE_MENU_ICON,
-             APP_INFO_STANDARD_APP);
+// removed version 2.0 SDK
+// #define MY_UUID { 0x91, 0x13, 0xA8, 0x37, 0x56, 0x92, 0x4C, 0xCA, 0x97, 0x86, 0xB2, 0x8D, 0x08, 0x1C, 0xDE, 0x35 }
+// PBL_APP_INFO(MY_UUID,
+//             "Revolution Stopwatch", "Mike Moore",
+//             1, 2, /* App version */
+//             RESOURCE_ID_IMAGE_MENU_ICON,
+//             APP_INFO_STANDARD_APP);
 
 // Envisioned as a watchface by Jean-Noël Mattern
 // Based on the display of the Freebox Revolution, which was designed by Philippe Starck.
@@ -94,15 +92,16 @@ const int DAY_IMAGE_RESOURCE_IDS[NUMBER_OF_DAY_IMAGES] = {
 
 
 // Main
-Window window;
+Window *window;
 
-Layer date_container_layer;
+Layer *date_container_layer;
 
 #define EMPTY_SLOT -1
 
 typedef struct Slot {
   int           number;
-  BmpContainer  image_container;
+  BitmapLayer  *image_container;
+  GBitmap       *image;
   int           state;
 } Slot;
 
@@ -110,43 +109,44 @@ typedef struct Slot {
 typedef struct TimeSlot {
   Slot              slot;
   int               new_state;
-  PropertyAnimation slide_out_animation;
-  PropertyAnimation slide_in_animation;
+  PropertyAnimation *slide_out_animation;
+  PropertyAnimation *slide_in_animation;
   bool              animating;
 } TimeSlot;
 
 #define NUMBER_OF_TIME_SLOTS 4
-Layer time_layer;
+Layer *time_layer;
 TimeSlot time_slots[NUMBER_OF_TIME_SLOTS];
 
 // Date
 #define NUMBER_OF_DATE_SLOTS 4
-Layer date_layer;
+Layer *date_layer;
 Slot date_slots[NUMBER_OF_DATE_SLOTS];
 
 // Seconds
 #define NUMBER_OF_SECOND_SLOTS 2
-Layer seconds_layer;
+Layer *seconds_layer;
 Slot second_slots[NUMBER_OF_SECOND_SLOTS];
 
 // Day
 typedef struct DayItem {
-  BmpContainer  image_container;
-  Layer         layer;
+  BitmapLayer  *image_container;
+  GBitmap      *image;
+  Layer         *layer;
   bool          loaded;
 } DayItem;
 DayItem day_item;
 
 
 // General
-BmpContainer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *parent_layer, GRect frame, const int *digit_resource_ids);
+BitmapLayer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *parent_layer, GRect frame, const int *digit_resource_ids);
 void unload_digit_image_from_slot(Slot *slot);
 
 // Display
-void display_time(PblTm *tick_time);
-void display_date(PblTm *tick_time);
-void display_seconds(PblTm *tick_time);
-void display_day(PblTm *tick_time);
+void display_time(struct tm *tick_time);
+void display_date(struct tm *tick_time);
+void display_seconds(struct tm *tick_time);
+void display_day(struct tm *tick_time);
 
 // Time
 void display_time_value(int value, int row_number);
@@ -165,14 +165,15 @@ void update_date_slot(Slot *date_slot, int digit_value);
 void update_second_slot(Slot *second_slot, int digit_value);
 
 // Handlers
-void pbl_main(void *params);
-void handle_init(AppContextRef ctx);
-void handle_second_tick(AppContextRef ctx, PebbleTickEvent *event);
-void handle_deinit(AppContextRef ctx);
+int main(void);
+// void pbl_main(void *params);
+void handle_init();
+void handle_second_tick(struct tm *time, TimeUnits units_changed);
+void handle_deinit();
 
 
 // General
-BmpContainer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *parent_layer, GRect frame, const int *digit_resource_ids) {
+BitmapLayer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *parent_layer, GRect frame, const int *digit_resource_ids) {
   if (digit_value < 0 || digit_value > 9) {
     return NULL;
   }
@@ -183,13 +184,13 @@ BmpContainer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *par
 
   slot->state = digit_value;
 
-  BmpContainer *image_container = &slot->image_container;
+  slot->image = gbitmap_create_with_resource(digit_resource_ids[digit_value]);
+  slot->image_container = bitmap_layer_create(slot->image->bounds);
+  bitmap_layer_set_bitmap(slot->image_container, slot->image);
+  layer_set_frame((Layer *)slot->image_container, frame);
+  layer_add_child(parent_layer, (Layer *)slot->image_container);
 
-  bmp_init_container(digit_resource_ids[digit_value], image_container);
-  layer_set_frame(&image_container->layer.layer, frame);
-  layer_add_child(parent_layer, &image_container->layer.layer);
-
-  return image_container;
+  return slot->image_container;
 }
 
 void unload_digit_image_from_slot(Slot *slot) {
@@ -197,16 +198,16 @@ void unload_digit_image_from_slot(Slot *slot) {
     return;
   }
 
-  BmpContainer *image_container = &slot->image_container;
 
-  layer_remove_from_parent(&image_container->layer.layer);
-  bmp_deinit_container(image_container);
+  layer_remove_from_parent((Layer *)slot->image_container);
+  bitmap_layer_destroy(slot->image_container);
+  gbitmap_destroy(slot->image);
 
   slot->state = EMPTY_SLOT;
 }
 
 // Display
-void display_time(PblTm *tick_time) {
+void display_time(struct tm *tick_time) {
   int hour = tick_time->tm_hour;
 
   if (!clock_is_24h_style()) {
@@ -220,7 +221,7 @@ void display_time(PblTm *tick_time) {
   display_time_value(tick_time->tm_min, 1);
 }
 
-void display_date(PblTm *tick_time) {
+void display_date(struct tm *tick_time) {
   int day   = tick_time->tm_mday;
   int month = tick_time->tm_mon + 1;
 
@@ -233,7 +234,7 @@ void display_date(PblTm *tick_time) {
 #endif
 }
 
-void display_seconds(PblTm *tick_time) {
+void display_seconds(struct tm *tick_time) {
   int seconds = tick_time->tm_sec;
 
   seconds = seconds % 100; // Maximum of two digits per row.
@@ -247,16 +248,18 @@ void display_seconds(PblTm *tick_time) {
   }
 }
 
-void display_day(PblTm *tick_time) {
-  BmpContainer *image_container = &day_item.image_container;
+void display_day(struct tm *tick_time) {
 
   if (day_item.loaded) {
-    layer_remove_from_parent(&image_container->layer.layer);
-    bmp_deinit_container(image_container);
+    layer_remove_from_parent((Layer *)day_item.image_container);
+    bitmap_layer_destroy(day_item.image_container);
+    gbitmap_destroy(day_item.image);
   }
 
-  bmp_init_container(DAY_IMAGE_RESOURCE_IDS[tick_time->tm_wday], image_container);
-  layer_add_child(&day_item.layer, &image_container->layer.layer);
+  day_item.image = gbitmap_create_with_resource(  DAY_IMAGE_RESOURCE_IDS[tick_time->tm_wday]);
+  day_item.image_container = bitmap_layer_create(day_item.image->bounds);
+  bitmap_layer_set_bitmap(day_item.image_container,day_item.image);
+  layer_add_child(day_item.layer, (Layer *)day_item.image_container);
 
   day_item.loaded = true;
 }
@@ -291,20 +294,20 @@ void update_time_slot(TimeSlot *time_slot, int digit_value) {
   PropertyAnimation *animation;
   if (time_slot->slot.state == EMPTY_SLOT) {
     slide_in_digit_image_into_time_slot(time_slot, digit_value);
-    animation = &time_slot->slide_in_animation;
+    animation = time_slot->slide_in_animation;
   }
   else {
     time_slot->new_state = digit_value;
 
     slide_out_digit_image_from_time_slot(time_slot);
-    animation = &time_slot->slide_out_animation;
+    animation = time_slot->slide_out_animation;
 
-    animation_set_handlers(&animation->animation, (AnimationHandlers){
+    animation_set_handlers((Animation *)animation, (AnimationHandlers){
       .stopped = (AnimationStoppedHandler)time_slot_slide_out_animation_stopped
     }, (void *)time_slot);
   }
 
-  animation_schedule(&animation->animation);
+  animation_schedule((Animation *)animation);
 }
 
 GRect frame_for_time_slot(TimeSlot *time_slot) {
@@ -335,13 +338,13 @@ void slide_in_digit_image_into_time_slot(TimeSlot *time_slot, int digit_value) {
   }
   GRect from_frame = GRect(from_x, from_y, TIME_IMAGE_WIDTH, TIME_IMAGE_HEIGHT);
 
-  BmpContainer *image_container = load_digit_image_into_slot(&time_slot->slot, digit_value, &time_layer, from_frame, TIME_IMAGE_RESOURCE_IDS);
+  BitmapLayer *image_container = load_digit_image_into_slot(&time_slot->slot, digit_value, time_layer, from_frame, TIME_IMAGE_RESOURCE_IDS);
 
-  PropertyAnimation *animation = &time_slot->slide_in_animation;
-  property_animation_init_layer_frame(animation, &image_container->layer.layer, &from_frame, &to_frame);
-  animation_set_duration( &animation->animation, TIME_SLOT_ANIMATION_DURATION);
-  animation_set_curve(    &animation->animation, AnimationCurveLinear);
-  animation_set_handlers( &animation->animation, (AnimationHandlers){
+
+  time_slot->slide_in_animation = property_animation_create_layer_frame( (Layer *) image_container, &from_frame, &to_frame);
+  animation_set_duration( (Animation *)time_slot->slide_in_animation , TIME_SLOT_ANIMATION_DURATION);
+  animation_set_curve(   (Animation *) time_slot->slide_in_animation , AnimationCurveLinear);
+  animation_set_handlers( (Animation *) time_slot->slide_in_animation,  (AnimationHandlers){
     .stopped = (AnimationStoppedHandler)time_slot_slide_in_animation_stopped
   }, (void *)time_slot);
 }
@@ -373,12 +376,12 @@ void slide_out_digit_image_from_time_slot(TimeSlot *time_slot) {
   }
   GRect to_frame = GRect(to_x, to_y, TIME_IMAGE_WIDTH, TIME_IMAGE_HEIGHT);
 
-  BmpContainer *image_container = &time_slot->slot.image_container;
+  BitmapLayer *image_container = time_slot->slot.image_container;
 
-  PropertyAnimation *animation = &time_slot->slide_out_animation;
-  property_animation_init_layer_frame(animation, &image_container->layer.layer, &from_frame, &to_frame);
-  animation_set_duration( &animation->animation, TIME_SLOT_ANIMATION_DURATION);
-  animation_set_curve(    &animation->animation, AnimationCurveLinear);
+  time_slot->slide_out_animation = property_animation_create_layer_frame((Layer *)image_container,&from_frame, &to_frame);
+  Animation *animation = (Animation *)time_slot->slide_out_animation;
+  animation_set_duration( animation, TIME_SLOT_ANIMATION_DURATION);
+  animation_set_curve(  animation, AnimationCurveLinear);
 
   // Make sure to unload the digit image from the slot when the animation has finished!
 }
@@ -389,7 +392,7 @@ void time_slot_slide_out_animation_stopped(Animation *slide_out_animation, bool 
   unload_digit_image_from_slot(&time_slot->slot);
 
   slide_in_digit_image_into_time_slot(time_slot, time_slot->new_state);
-  animation_schedule(&time_slot->slide_in_animation.animation);
+  animation_schedule((Animation *)time_slot->slide_in_animation);
 
   time_slot->new_state = EMPTY_SLOT;
 }
@@ -421,7 +424,7 @@ void update_date_slot(Slot *date_slot, int digit_value) {
   GRect frame =  GRect(x, 0, DATE_IMAGE_WIDTH, DATE_IMAGE_HEIGHT);
 
   unload_digit_image_from_slot(date_slot);
-  load_digit_image_into_slot(date_slot, digit_value, &date_layer, frame, DATE_IMAGE_RESOURCE_IDS);
+  load_digit_image_into_slot(date_slot, digit_value, date_layer, frame, DATE_IMAGE_RESOURCE_IDS);
 }
 
 // Seconds
@@ -438,37 +441,43 @@ void update_second_slot(Slot *second_slot, int digit_value) {
   );
 
   unload_digit_image_from_slot(second_slot);
-  load_digit_image_into_slot(second_slot, digit_value, &seconds_layer, frame, SECOND_IMAGE_RESOURCE_IDS);
+  load_digit_image_into_slot(second_slot, digit_value, seconds_layer, frame, SECOND_IMAGE_RESOURCE_IDS);
 }
 
-// Handlers
-void pbl_main(void *params) {
-  PebbleAppHandlers handlers = {
-    .init_handler   = &handle_init,
-    .deinit_handler = &handle_deinit,
-//*********************************************************************************
-    .timer_handler = &yachtimercontrol_handle_timer  // Put timer in instead of tick_handler
-//*********************************************************************************
-//    .tick_info = {
-//      .tick_handler = &handle_second_tick,
-//      .tick_units   = SECOND_UNIT
-//    }
-//*********************************************************************************
-  };
-
-  app_event_loop(params, &handlers);
+int main(void)
+{
+	handle_init();
+	app_event_loop();
+        handle_deinit();
 }
 
-void handle_init(AppContextRef ctx) {
-  window_init(&window, "Revolution");
-  window_stack_push(&window, true /* Animated */);
+//// Handlers
+// void pbl_main(void *params) {
+//  PebbleAppHandlers handlers = {
+//    .init_handler   = &handle_init,
+//    .deinit_handler = &handle_deinit,
+////*********************************************************************************
+//    .timer_handler = &yachtimercontrol_handle_timer  // Put timer in instead of tick_handler
+////*********************************************************************************
+////    .tick_info = {
+////      .tick_handler = &handle_second_tick,
+////      .tick_units   = SECOND_UNIT
+////    }
+////*********************************************************************************
+//  };
+//
+//  app_event_loop(params, &handlers);
+//}
 
+void handle_init() {
+  window = window_create();
 //*********************************************************************************
-  window_set_fullscreen(&window, true); // if app need to do this.
+  window_set_fullscreen(window, true); // if app need to do this.
 //*********************************************************************************
-  window_set_background_color(&window, GColorBlack);
+  window_stack_push(window, true /* Animated */);
 
-  resource_init_current_app(&APP_RESOURCES);
+  window_set_background_color(window, GColorBlack);
+
 
 
   // Time slots
@@ -499,18 +508,18 @@ void handle_init(AppContextRef ctx) {
 
 
   // Root layer
-  Layer *root_layer = window_get_root_layer(&window);
+  Layer *root_layer = window_get_root_layer(window);
 
   // Time
-  layer_init(&time_layer, GRect(0, 0, SCREEN_WIDTH, SCREEN_WIDTH));
-  layer_set_clips(&time_layer, true);
-  layer_add_child(root_layer, &time_layer);
+  time_layer = layer_create(GRect(0, 0, SCREEN_WIDTH, SCREEN_WIDTH));
+  layer_set_clips(time_layer, true);
+  layer_add_child(root_layer, time_layer);
 
   // Date container
   int date_container_height = SCREEN_HEIGHT - SCREEN_WIDTH;
 
-  layer_init(&date_container_layer, GRect(0, SCREEN_WIDTH, SCREEN_WIDTH, date_container_height));
-  layer_add_child(root_layer, &date_container_layer);
+  date_container_layer = layer_create(GRect(0, SCREEN_WIDTH, SCREEN_WIDTH, date_container_height));
+  layer_add_child(root_layer, date_container_layer);
 
   // Day
   GRect day_layer_frame = GRect(
@@ -519,8 +528,8 @@ void handle_init(AppContextRef ctx) {
     DAY_IMAGE_WIDTH, 
     DAY_IMAGE_HEIGHT
   );
-  layer_init(&day_item.layer, day_layer_frame);
-  layer_add_child(&date_container_layer, &day_item.layer);
+  day_item.layer = layer_create(day_layer_frame);
+  layer_add_child(date_container_layer, day_item.layer);
 
   // Date
   GRect date_layer_frame = GRectZero;
@@ -529,8 +538,8 @@ void handle_init(AppContextRef ctx) {
   date_layer_frame.origin.x = (SCREEN_WIDTH - date_layer_frame.size.w) / 2;
   date_layer_frame.origin.y = date_container_height - DATE_IMAGE_HEIGHT - MARGIN;
 
-  layer_init(&date_layer, date_layer_frame);
-  layer_add_child(&date_container_layer, &date_layer);
+  date_layer = layer_create( date_layer_frame);
+  layer_add_child(date_container_layer, date_layer);
 
   // Seconds
   GRect seconds_layer_frame = GRect(
@@ -539,8 +548,8 @@ void handle_init(AppContextRef ctx) {
     SECOND_IMAGE_WIDTH + MARGIN + SECOND_IMAGE_WIDTH, 
     SECOND_IMAGE_HEIGHT
   );
-  layer_init(&seconds_layer, seconds_layer_frame);
-  layer_add_child(&date_container_layer, &seconds_layer);
+  seconds_layer = layer_create( seconds_layer_frame);
+  layer_add_child(date_container_layer, seconds_layer);
 
 //************************************* set up the control *******************************
   GRect modeIndicatorPos = GRect(
@@ -549,39 +558,38 @@ void handle_init(AppContextRef ctx) {
 	12,
 	16);
   yachtimercontrol_init(&myControl,
-			ctx, 
-			&window, 
+			window, 
 			myModes, 
 			MODES,
 			modeIndicatorPos,
-			&handle_second_tick);
+			handle_second_tick);
 //************************************* set up the control *******************************
 
 
   // Display
 
 //************************************* the control makes this happen  *******************************
- /*   PblTm *tick_time = yachtimer_getPblDisplayTime(yachtimercontrol_getModel(&myControl));
+ /*   struct tm *tick_time = yachtimer_getPblDisplayTime(yachtimercontrol_getModel(&myControl));
    display_time(tick_time);
    display_day(tick_time);
    display_date(tick_time);
    display_seconds(tick_time); */
 }
 
-void handle_second_tick(AppContextRef ctx, PebbleTickEvent *event) {
-  display_seconds(event->tick_time);
+void handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
+  display_seconds(tick_time);
 
-  if ((event->units_changed & SECOND_UNIT) == SECOND_UNIT) {
-    display_time(event->tick_time);
+  if ((units_changed & SECOND_UNIT) == SECOND_UNIT) {
+    display_time(tick_time);
   }
 
-  if ((event->units_changed & DAY_UNIT) == DAY_UNIT) {
-    display_day(event->tick_time);
-    display_date(event->tick_time);
+  if ((units_changed & DAY_UNIT) == DAY_UNIT) {
+    display_day(tick_time);
+    display_date(tick_time);
   }
 }
 
-void handle_deinit(AppContextRef ctx) {
+void handle_deinit() {
   for (int i = 0; i < NUMBER_OF_TIME_SLOTS; i++) {
     unload_digit_image_from_slot(&time_slots[i].slot);
   }
@@ -593,7 +601,8 @@ void handle_deinit(AppContextRef ctx) {
   }
 
   if (day_item.loaded) {
-    bmp_deinit_container(&day_item.image_container);
+    bitmap_layer_destroy(day_item.image_container);
+    gbitmap_destroy(day_item.image);
   }
    //************************************* unset up the control *******************************
   yachtimercontrol_deinit(&myControl);
