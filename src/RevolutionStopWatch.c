@@ -18,7 +18,7 @@
 //************************* Boiler Plate Stop Watch stuff *****************************************
 // The only control a as toggle mode  is available.
 // Could have a multi control as well.
-YachtTimerControl myControl;
+YachtTimerControl *myControl;
 
 // Resources and position of images come from the view
 ModeResource myModes[MODES] = {
@@ -557,8 +557,7 @@ void handle_init() {
 	((144 - 16)/2),
 	12,
 	16);
-  yachtimercontrol_init(&myControl,
-			window, 
+  myControl = yachtimercontrol_create( window, 
 			myModes, 
 			MODES,
 			modeIndicatorPos,
@@ -605,6 +604,6 @@ void handle_deinit() {
     gbitmap_destroy(day_item.image);
   }
    //************************************* unset up the control *******************************
-  yachtimercontrol_deinit(&myControl);
+  yachtimercontrol_destroy(myControl);
    //************************************* unset up the control *******************************
 }
