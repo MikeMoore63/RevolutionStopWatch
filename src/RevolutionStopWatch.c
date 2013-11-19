@@ -341,6 +341,11 @@ void slide_in_digit_image_into_time_slot(TimeSlot *time_slot, int digit_value) {
   BitmapLayer *image_container = load_digit_image_into_slot(&time_slot->slot, digit_value, time_layer, from_frame, TIME_IMAGE_RESOURCE_IDS);
 
 
+  if(time_slot->slide_in_animation != NULL)
+  {
+	property_animation_destroy(time_slot->slide_in_animation);
+	time_slot->slide_in_animation = NULL;
+  }
   time_slot->slide_in_animation = property_animation_create_layer_frame( (Layer *) image_container, &from_frame, &to_frame);
   animation_set_duration( (Animation *)time_slot->slide_in_animation , TIME_SLOT_ANIMATION_DURATION);
   animation_set_curve(   (Animation *) time_slot->slide_in_animation , AnimationCurveLinear);
@@ -378,6 +383,11 @@ void slide_out_digit_image_from_time_slot(TimeSlot *time_slot) {
 
   BitmapLayer *image_container = time_slot->slot.image_container;
 
+  if(time_slot->slide_out_animation != NULL)
+  {
+	property_animation_destroy(time_slot->slide_out_animation);
+        time_slot->slide_out_animation = NULL;
+  }
   time_slot->slide_out_animation = property_animation_create_layer_frame((Layer *)image_container,&from_frame, &to_frame);
   Animation *animation = (Animation *)time_slot->slide_out_animation;
   animation_set_duration( animation, TIME_SLOT_ANIMATION_DURATION);
@@ -487,6 +497,8 @@ void handle_init() {
     time_slot->slot.state   = EMPTY_SLOT;
     time_slot->new_state    = EMPTY_SLOT;
     time_slot->animating    = false;
+    time_slot->slide_in_animation = NULL;
+    time_slot->slide_out_animation = NULL;
   }
 
   // Date slots
