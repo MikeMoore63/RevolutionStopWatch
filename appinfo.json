@@ -4,7 +4,7 @@
   "longName": "Revolution Stopwatch",
   "companyName": "Mike Moore",
   "versionCode": 1,
-  "versionLabel": "2.0.2",
+  "versionLabel": "2.0.3",
   "watchapp": {
     "watchface": false
   },
