@@ -185,7 +185,7 @@ BitmapLayer *load_digit_image_into_slot(Slot *slot, int digit_value, Layer *pare
   slot->state = digit_value;
 
   slot->image = gbitmap_create_with_resource(digit_resource_ids[digit_value]);
-  slot->image_container = bitmap_layer_create(slot->image->bounds);
+  slot->image_container = bitmap_layer_create(gbitmap_get_bounds(slot->image));
   bitmap_layer_set_bitmap(slot->image_container, slot->image);
   layer_set_frame((Layer *)slot->image_container, frame);
   layer_add_child(parent_layer, (Layer *)slot->image_container);
@@ -257,7 +257,7 @@ void display_day(struct tm *tick_time) {
   }
 
   day_item.image = gbitmap_create_with_resource(  DAY_IMAGE_RESOURCE_IDS[tick_time->tm_wday]);
-  day_item.image_container = bitmap_layer_create(day_item.image->bounds);
+  day_item.image_container = bitmap_layer_create(gbitmap_get_bounds(day_item.image));
   bitmap_layer_set_bitmap(day_item.image_container,day_item.image);
   layer_add_child(day_item.layer, (Layer *)day_item.image_container);
 
