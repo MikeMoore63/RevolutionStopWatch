@@ -482,7 +482,10 @@ int main(void)
 void handle_init() {
   window = window_create();
 //*********************************************************************************
+#ifdef PBL_SDK_3
+#else
   window_set_fullscreen(window, true); // if app need to do this.
+#endif
 //*********************************************************************************
   window_stack_push(window, true /* Animated */);
 
