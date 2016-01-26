@@ -13,6 +13,27 @@ Based on the display of the [Freebox Revolution](http://www.free.fr/adsl/freebox
 ### Download version 2.0
 * [RevolutionStopWatch.pbw](./build/RevolutionStopWatch.pbw) ( Non-US version)
 
+## User instructions
+
+The watch has several modes of use by default starts in last mode started and if you haven't used it previously starts in Clock mode.
+
+* Watch mode
+* Stopwatch
+* Yacht Timer mode (5 minute countdown with 4 minute and 1 minute highlights vibrate)
+* Countdown mode
+* Adjust countdown time 
+
+In modes core buttons are
+
+Select button is run in stopwatch countdown modes. 
+Up button is reset
+Down button is lap
+
+Pressing down for a long press switches the mode.
+
+When in adjust countdown Up botton adds a minute select takes aminute away.
+
+
 ## License
 
 This program is free software: you can redistribute it and/or modify
